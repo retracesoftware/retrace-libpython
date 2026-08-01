@@ -1,0 +1,85 @@
+name: Build libpython artifacts
+
+on:
+  workflow_dispatch:
+    inputs:
+      python_version:
+        description: Exact CPython patch release
+        required: true
+        default: "3.12.8"
+        type: string
+      producer_version:
+        description: Immutable producer release identifier
+        required: true
+        default: "0.1.0-dev"
+        type: string
+      publish:
+        description: Publish the verified bundle to GHCR
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            platform: linux-x86_64
+          - runner: ubuntu-24.04-arm
+            platform: linux-arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 360
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            build-essential git libbz2-dev libdb-dev libexpat1-dev \
+            libffi-dev libgdbm-compat-dev libgdbm-dev liblzma-dev \
+            libncursesw5-dev libreadline-dev libsqlite3-dev libssl-dev \
+            pkg-config tk-dev uuid-dev xz-utils zlib1g-dev
+
+      - name: Build both modes
+        run: |
+          make build-all \
+            VERSION=${{ inputs.python_version }} \
+            CPYTHON_REPO_URL=https://github.com/python/cpython.git
+
+      - name: Pack and verify
+        run: |
+          make pack verify \
+            VERSION=${{ inputs.python_version }} \
+            PRODUCER_VERSION=${{ inputs.producer_version }}
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: retrace-libpython-${{ inputs.python_version }}-${{ matrix.platform }}
+          path: dist/*.tar.gz
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Install oras
+        if: ${{ inputs.publish }}
+        uses: oras-project/setup-oras@v1
+
+      - name: Log in to GHCR
+        if: ${{ inputs.publish }}
+        run: echo "${{ github.token }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Publish immutable artifact
+        if: ${{ inputs.publish }}
+        run: |
+          make push \
+            VERSION=${{ inputs.python_version }} \
+            PRODUCER_VERSION=${{ inputs.producer_version }}

@@ -1,0 +1,43 @@
+#!/bin/sh
+set -eu
+
+usage() {
+    echo "usage: scripts/registry push|pull REFERENCE ARCHIVE" >&2
+    exit 2
+}
+
+command=${1:-}
+reference=${2:-}
+archive=${3:-}
+[ -n "$command" ] && [ -n "$reference" ] && [ -n "$archive" ] || usage
+command -v oras >/dev/null 2>&1 || {
+    echo "oras is required for GHCR transport" >&2
+    exit 127
+}
+
+media_type=application/vnd.retracesoftware.libpython.bundle.v1+gzip
+case "$command" in
+    push)
+        if oras manifest fetch "$reference" >/dev/null 2>&1; then
+            echo "refusing to replace existing artifact: $reference" >&2
+            exit 1
+        fi
+        oras push "$reference" \
+            --artifact-type application/vnd.retracesoftware.libpython.v1 \
+            "$archive:$media_type"
+        ;;
+    pull)
+        destination=$(dirname -- "$archive")
+        mkdir -p "$destination"
+        temporary=$(mktemp -d "$destination/.oras.XXXXXX")
+        trap 'rm -rf "$temporary"' EXIT HUP INT TERM
+        oras pull "$reference" --output "$temporary"
+        pulled="$temporary/$(basename -- "$archive")"
+        [ -f "$pulled" ] || {
+            echo "artifact did not contain $(basename -- "$archive")" >&2
+            exit 1
+        }
+        mv "$pulled" "$archive"
+        ;;
+    *) usage ;;
+esac

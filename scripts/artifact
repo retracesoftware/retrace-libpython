@@ -1,0 +1,262 @@
+#!/usr/bin/env python3
+"""Pack, verify, and install retrace-libpython artifact bundles."""
+
+import argparse
+import gzip
+import hashlib
+import json
+import os
+from pathlib import Path
+import platform
+import shutil
+import subprocess
+import tarfile
+import tempfile
+
+
+SCHEMA = 1
+MODES = ("release", "debug")
+MODE_FILES = (
+    "python",
+    "libpython.a",
+    "pyconfig.h",
+    "pybuilddir.txt",
+    "retrace-libpython.json",
+    "Makefile",
+    "Makefile.pre",
+    "config.status",
+    "python-config",
+    "python-config.py",
+)
+
+
+def sha256(path):
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def platform_tag():
+    system = platform.system().lower()
+    machine = platform.machine().lower().replace("aarch64", "arm64")
+    return f"{system}-{machine}"
+
+
+def copy_source(source, destination):
+    shutil.copytree(
+        source,
+        destination,
+        ignore=shutil.ignore_patterns(".git", "__pycache__", "*.pyc"),
+        symlinks=True,
+    )
+
+
+def write_launcher(mode_root):
+    launcher = mode_root / "python-relocatable"
+    launcher.write_text(
+        "#!/bin/sh\n"
+        "set -eu\n"
+        "mode=$(CDPATH= cd -- \"$(dirname -- \"$0\")\" && pwd)\n"
+        "root=$(dirname -- \"$mode\")\n"
+        "platlib=$(cat \"$mode/pybuilddir.txt\")\n"
+        "export PYTHONHOME=\"$mode\"\n"
+        "export PYTHONPATH=\"$root/source/Lib:$mode/$platlib"
+        "${PYTHONPATH:+:$PYTHONPATH}\"\n"
+        "exec \"$mode/python\" \"$@\"\n"
+    )
+    launcher.chmod(0o755)
+
+
+def copy_mode(source, destination):
+    destination.mkdir(parents=True)
+    for name in MODE_FILES:
+        path = source / name
+        if path.exists():
+            if path.is_symlink():
+                destination.joinpath(name).symlink_to(os.readlink(path))
+            else:
+                shutil.copy2(path, destination / name)
+    build_dir = source / "build"
+    if not build_dir.is_dir():
+        raise SystemExit(f"missing CPython build directory: {build_dir}")
+    shutil.copytree(
+        build_dir,
+        destination / "build",
+        ignore=shutil.ignore_patterns("*.o", "__pycache__", "*.pyc"),
+        symlinks=False,
+    )
+    write_launcher(destination)
+
+
+def load_mode_metadata(root, mode):
+    path = root / mode / "retrace-libpython.json"
+    try:
+        return json.loads(path.read_text())
+    except FileNotFoundError as error:
+        raise SystemExit(f"missing build metadata: {path}") from error
+
+
+def file_inventory(root):
+    inventory = {}
+    for path in sorted(root.rglob("*")):
+        if path.is_file() and not path.is_symlink():
+            inventory[path.relative_to(root).as_posix()] = {
+                "sha256": sha256(path),
+                "size": path.stat().st_size,
+            }
+    return inventory
+
+
+def normalized_tar_info(info):
+    info.uid = 0
+    info.gid = 0
+    info.uname = ""
+    info.gname = ""
+    info.mtime = 0
+    return info
+
+
+def create_archive(source, output):
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with output.open("wb") as raw:
+        with gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0) as compressed:
+            with tarfile.open(mode="w", fileobj=compressed, format=tarfile.PAX_FORMAT) as archive:
+                archive.add(source, arcname=".", filter=normalized_tar_info)
+
+
+def command_pack(args):
+    root = args.root.resolve()
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    metadata = {mode: load_mode_metadata(root, mode) for mode in MODES}
+    versions = {item["cpython"]["version"] for item in metadata.values()}
+    commits = {item["cpython"]["commit"] for item in metadata.values()}
+    profiles = {item["profile"] for item in metadata.values()}
+    if len(versions) != 1 or len(commits) != 1 or len(profiles) != 1:
+        raise SystemExit("release and debug metadata identities do not match")
+
+    with tempfile.TemporaryDirectory(dir=args.output.parent) as temporary:
+        stage = Path(temporary) / "payload"
+        copy_source(root / "source", stage / "source")
+        for mode in MODES:
+            copy_mode(root / mode, stage / mode)
+        manifest = {
+            "schema": SCHEMA,
+            "producer_version": args.producer_version,
+            "profile": profiles.pop(),
+            "cpython": {"version": versions.pop(), "commit": commits.pop()},
+            "platform": platform_tag(),
+            "modes": metadata,
+            "files": file_inventory(stage),
+        }
+        (stage / "artifact-manifest.json").write_text(
+            json.dumps(manifest, indent=2, sort_keys=True) + "\n"
+        )
+        create_archive(stage, args.output)
+    print(args.output)
+
+
+def safe_extract(archive_path, destination):
+    destination = destination.resolve()
+    with tarfile.open(archive_path, "r:gz") as archive:
+        for member in archive.getmembers():
+            target = (destination / member.name).resolve()
+            if target != destination and destination not in target.parents:
+                raise SystemExit(f"unsafe archive member: {member.name}")
+        archive.extractall(destination)
+
+
+def verify_tree(root, run=False):
+    manifest_path = root / "artifact-manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    if manifest.get("schema") != SCHEMA:
+        raise SystemExit(f"unsupported artifact schema: {manifest.get('schema')}")
+    if manifest.get("platform") != platform_tag():
+        raise SystemExit(
+            f"artifact platform {manifest.get('platform')} does not match {platform_tag()}"
+        )
+    expected = manifest["files"]
+    for relative, record in expected.items():
+        path = root / relative
+        if not path.is_file():
+            raise SystemExit(f"missing artifact file: {relative}")
+        if path.stat().st_size != record["size"] or sha256(path) != record["sha256"]:
+            raise SystemExit(f"artifact checksum mismatch: {relative}")
+    if run:
+        version = tuple(int(part) for part in manifest["cpython"]["version"].split("."))
+        probe = (
+            "import _ssl, sys; "
+            f"assert sys.version_info[:3] == {version!r}; "
+            "assert hasattr(sys, 'gettotalrefcount') == "
+        )
+        for mode in MODES:
+            expression = probe + ("True" if mode == "debug" else "False")
+            subprocess.run([root / mode / "python-relocatable", "-c", expression], check=True)
+    return manifest
+
+
+def command_verify(args):
+    if args.archive:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "payload"
+            root.mkdir()
+            safe_extract(args.archive, root)
+            manifest = verify_tree(root, args.run)
+    else:
+        manifest = verify_tree(args.root.resolve(), args.run)
+    print(
+        f"verified CPython {manifest['cpython']['version']} "
+        f"{manifest['platform']} ({manifest['producer_version']})"
+    )
+
+
+def command_install(args):
+    destination = args.destination.resolve()
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=destination.parent) as temporary:
+        stage = Path(temporary) / "payload"
+        stage.mkdir()
+        safe_extract(args.archive, stage)
+        verify_tree(stage, args.run)
+        if destination.exists():
+            if not args.force:
+                raise SystemExit(f"destination already exists: {destination}")
+            shutil.rmtree(destination)
+        os.replace(stage, destination)
+    print(destination)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    subparsers = parser.add_subparsers(required=True)
+
+    platform_parser = subparsers.add_parser("platform-tag")
+    platform_parser.set_defaults(func=lambda args: print(platform_tag()))
+
+    pack = subparsers.add_parser("pack")
+    pack.add_argument("--root", required=True, type=Path)
+    pack.add_argument("--output", required=True, type=Path)
+    pack.add_argument("--producer-version", required=True)
+    pack.set_defaults(func=command_pack)
+
+    verify = subparsers.add_parser("verify")
+    source = verify.add_mutually_exclusive_group(required=True)
+    source.add_argument("--archive", type=Path)
+    source.add_argument("--root", type=Path)
+    verify.add_argument("--run", action="store_true")
+    verify.set_defaults(func=command_verify)
+
+    install = subparsers.add_parser("install")
+    install.add_argument("--archive", required=True, type=Path)
+    install.add_argument("--destination", required=True, type=Path)
+    install.add_argument("--force", action="store_true")
+    install.add_argument("--run", action="store_true")
+    install.set_defaults(func=command_install)
+
+    args = parser.parse_args()
+    args.func(args)
+
+
+if __name__ == "__main__":
+    main()

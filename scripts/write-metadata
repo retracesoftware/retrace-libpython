@@ -1,0 +1,58 @@
+#!/usr/bin/env python3
+"""Write deterministic metadata for one CPython build mode."""
+
+import argparse
+import json
+import platform
+from pathlib import Path
+import subprocess
+
+
+def output(*command):
+    return subprocess.check_output(command, text=True).strip()
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--source", required=True, type=Path)
+    parser.add_argument("--build", required=True, type=Path)
+    parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--version", required=True)
+    parser.add_argument("--mode", required=True)
+    parser.add_argument("--profile", required=True)
+    parser.add_argument("--cflags", required=True)
+    parser.add_argument("--configure-args", required=True)
+    parser.add_argument("--cflags-nodist", required=True)
+    args = parser.parse_args()
+
+    python = args.build / "python"
+    libpython = args.build / "libpython.a"
+    metadata = {
+        "schema": 1,
+        "profile": args.profile,
+        "cpython": {
+            "version": args.version,
+            "commit": output("git", "-C", args.source, "rev-parse", "HEAD"),
+        },
+        "platform": {
+            "system": platform.system().lower(),
+            "machine": platform.machine().lower(),
+            "libc": list(platform.libc_ver()),
+        },
+        "build": {
+            "mode": args.mode,
+            "cflags": args.cflags,
+            "cflags_nodist": args.cflags_nodist,
+            "configure_args": args.configure_args.split(),
+            "compiler": output("cc", "--version").splitlines()[0],
+        },
+        "outputs": {
+            "python": python.name,
+            "libpython": libpython.name,
+        },
+    }
+    args.output.write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n")
+
+
+if __name__ == "__main__":
+    main()
