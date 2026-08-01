@@ -22,10 +22,13 @@ case "$command" in
             echo "refusing to replace existing artifact: $reference" >&2
             exit 1
         fi
+        archive_directory=$(CDPATH= cd -- "$(dirname -- "$archive")" && pwd)
+        archive_name=$(basename -- "$archive")
+        cd "$archive_directory"
         oras push "$reference" \
             --artifact-type application/vnd.retracesoftware.libpython.v1 \
             --annotation org.opencontainers.image.source=https://github.com/retracesoftware/retrace-libpython \
-            "$archive:$media_type"
+            "$archive_name:$media_type"
         ;;
     pull)
         destination=$(dirname -- "$archive")
