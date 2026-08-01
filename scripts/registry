@@ -2,7 +2,7 @@
 set -eu
 
 usage() {
-    echo "usage: scripts/registry exists|digest REFERENCE | push|pull REFERENCE ARCHIVE" >&2
+    echo "usage: scripts/registry exists REFERENCE | push|pull REFERENCE ARCHIVE" >&2
     exit 2
 }
 
@@ -20,11 +20,6 @@ case "$command" in
     exists)
         [ -z "$archive" ] || usage
         oras manifest fetch "$reference" >/dev/null
-        ;;
-    digest)
-        [ -z "$archive" ] || usage
-        oras manifest fetch --descriptor "$reference" |
-            python3 -c 'import json, sys; print(json.load(sys.stdin)["digest"])'
         ;;
     push)
         [ -n "$archive" ] || usage

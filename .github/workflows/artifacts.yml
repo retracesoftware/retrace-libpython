@@ -8,20 +8,6 @@ on:
         required: true
         default: "v3.14.5"
         type: string
-      platform:
-        description: Target platform
-        required: true
-        default: all
-        type: choice
-        options:
-          - all
-          - linux-x86_64
-          - linux-arm64
-      restore_existing:
-        description: Download and upload existing artifacts
-        required: true
-        default: true
-        type: boolean
       publish:
         description: Publish the verified bundle to GHCR
         required: true
@@ -37,16 +23,6 @@ on:
         description: Publish a missing artifact to GHCR
         required: true
         type: boolean
-      platform:
-        description: Target platform, or all platforms
-        required: false
-        default: all
-        type: string
-      restore_existing:
-        description: Download and upload existing artifacts
-        required: false
-        default: false
-        type: boolean
 
 permissions:
   contents: read
@@ -57,7 +33,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJSON(inputs.platform == 'linux-x86_64' && '[{"runner":"ubuntu-24.04","platform":"linux-x86_64"}]' || inputs.platform == 'linux-arm64' && '[{"runner":"ubuntu-24.04-arm","platform":"linux-arm64"}]' || '[{"runner":"ubuntu-24.04","platform":"linux-x86_64"},{"runner":"ubuntu-24.04-arm","platform":"linux-arm64"}]') }}
+        include:
+          - runner: ubuntu-24.04
+            platform: linux-x86_64
+          - runner: ubuntu-24.04-arm
+            platform: linux-arm64
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 360
     container: ubuntu:22.04
@@ -66,11 +46,14 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v5
 
-      - name: Install artifact dependencies
+      - name: Install build dependencies
         run: |
           apt-get update
           DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends \
-            ca-certificates git make python3 xz-utils
+            build-essential ca-certificates git libbz2-dev libdb-dev libexpat1-dev \
+            libffi-dev libgdbm-compat-dev libgdbm-dev liblzma-dev \
+            libncursesw5-dev libreadline-dev libsqlite3-dev libssl-dev \
+            pkg-config python3 tk-dev uuid-dev xz-utils zlib1g-dev
 
       - name: Resolve immutable identity
         id: identity
@@ -118,17 +101,8 @@ jobs:
             echo "hit=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Install build dependencies
-        if: ${{ steps.cache.outputs.hit != 'true' }}
-        run: |
-          DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends \
-            build-essential libbz2-dev libdb-dev libexpat1-dev libffi-dev \
-            libgdbm-compat-dev libgdbm-dev liblzma-dev libncursesw5-dev \
-            libreadline-dev libsqlite3-dev libssl-dev pkg-config tk-dev \
-            uuid-dev zlib1g-dev
-
       - name: Restore exact artifact
-        if: ${{ steps.cache.outputs.hit == 'true' && inputs.restore_existing }}
+        if: ${{ steps.cache.outputs.hit == 'true' }}
         run: |
           make pull \
             PYTHON_TAG=${{ inputs.python_tag }} \
@@ -150,7 +124,6 @@ jobs:
             PRODUCER_COMMIT=${{ github.sha }}
 
       - name: Upload workflow artifact
-        if: ${{ steps.cache.outputs.hit != 'true' || inputs.restore_existing }}
         uses: actions/upload-artifact@v5
         with:
           name: retrace-libpython-${{ inputs.python_tag }}-${{ matrix.platform }}

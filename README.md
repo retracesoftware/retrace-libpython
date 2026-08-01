@@ -6,8 +6,8 @@ sources or build `_retrace`.
 
 The producer contains no supported CPython version list. Exact tags are inputs,
 so a new CPython patch release requires no source change here. One immutable
-artifact contains one exact patch in both release and debug modes. Series
-artifacts compose sequential exact patches from one CPython minor series.
+artifact contains one exact patch in both release and debug modes. Consumers
+download and extract the exact artifacts they need.
 
 ## Build
 
@@ -78,19 +78,13 @@ make pull PYTHON_TAG=v3.12.8 PRODUCER_VERSION=0.2.0
 An existing concrete tag is never replaced. Registry transport is optional;
 all build, pack, verify, and install operations work locally.
 
-The exact-artifact workflow accepts one `python_tag`. The series workflow
-accepts a minor release such as `3.14`, an OS, and an architecture. It queries
-CPython's GitHub tags, keeps only final `vX.Y.Z` tags with an integer patch,
-and composes the discovered series with a 512 MiB XZ dictionary.
+The artifact workflow accepts one exact `python_tag`.
 
 ## Workflows
 
 `artifacts.yml` receives one final tag such as `v3.14.5` and produces one
-immutable exact artifact per architecture. `series.yml` fans out missing exact
-patch builds as a matrix, then produces one OS/architecture-specific series
-artifact. If that immutable series artifact already exists, the workflow stops
-after discovery and the registry probe.
+immutable exact artifact per architecture. Consumers needing multiple patch
+releases pull those exact artifacts independently and extract each into the
+same `build/` directory.
 
-Publishing requires dispatching from a `retrace-libpython` release tag. Series
-manifests record each exact source artifact's OCI reference, immutable digest,
-and archive checksum.
+Publishing requires dispatching from a `retrace-libpython` release tag.
