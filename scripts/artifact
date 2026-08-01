@@ -168,12 +168,21 @@ def command_pack(args):
     root = args.root.resolve()
     args.output.parent.mkdir(parents=True, exist_ok=True)
     repository = Path(__file__).resolve().parents[1]
-    if git_output(repository, "status", "--porcelain"):
-        raise SystemExit("refusing to pack from a dirty producer checkout")
     requested_versions = args.versions
     validate_requested_versions(requested_versions)
     version_records = {}
     profiles = set()
+    producer_commit = args.producer_commit
+    if len(producer_commit) != 40 or any(
+        character not in "0123456789abcdef" for character in producer_commit
+    ):
+        raise SystemExit(f"invalid producer commit: {producer_commit}")
+    try:
+        dirty = git_output(repository, "status", "--porcelain")
+    except subprocess.CalledProcessError:
+        dirty = ""
+    if dirty:
+        raise SystemExit("refusing to pack from a dirty producer checkout")
     for version in requested_versions:
         version_root = root / f"v{version}"
         metadata = {
@@ -221,7 +230,7 @@ def command_pack(args):
                 "kind": "exact" if len(requested_versions) == 1 else "range",
                 "producer": {
                     "version": args.producer_version,
-                    "commit": git_output(repository, "rev-parse", "HEAD"),
+                    "commit": producer_commit,
                 },
                 "profile": profiles.pop(),
                 "platform": platform_tag(),
@@ -279,6 +288,7 @@ def command_compose(args):
             versions=args.versions,
             output=args.output,
             producer_version=args.producer_version,
+            producer_commit=args.producer_commit,
             sources=provenance,
         ))
 
@@ -412,6 +422,7 @@ def main():
     pack.add_argument("--versions", nargs="+", required=True)
     pack.add_argument("--output", required=True, type=Path)
     pack.add_argument("--producer-version", required=True)
+    pack.add_argument("--producer-commit", required=True)
     pack.add_argument("--sources", type=json.loads)
     pack.set_defaults(func=command_pack)
 
@@ -423,6 +434,7 @@ def main():
     )
     compose.add_argument("--output", required=True, type=Path)
     compose.add_argument("--producer-version", required=True)
+    compose.add_argument("--producer-commit", required=True)
     compose.set_defaults(func=command_compose)
 
     verify = subparsers.add_parser("verify")

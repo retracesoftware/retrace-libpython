@@ -11,6 +11,7 @@ BUILD_MODE ?= release
 CPYTHON_REPO_URL ?= https://github.com/python/cpython.git
 JOBS ?= $(shell getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2)
 PRODUCER_VERSION ?= $(shell git describe --tags --exact-match 2>/dev/null | sed 's/^v//' || git rev-parse --short=12 HEAD)
+PRODUCER_COMMIT ?= $(shell git rev-parse HEAD)
 REGISTRY ?= ghcr.io/retracesoftware/retrace-libpython
 
 ROOT := $(CURDIR)
@@ -62,7 +63,8 @@ pack: build-all prune-version
 
 pack-built:
 	python3 scripts/artifact pack --root $(ROOT)/build --versions $(VERSION) \
-	    --output $(ARTIFACT) --producer-version $(PRODUCER_VERSION)
+	    --output $(ARTIFACT) --producer-version $(PRODUCER_VERSION) \
+	    --producer-commit $(PRODUCER_COMMIT)
 
 verify: $(ARTIFACT)
 	python3 scripts/artifact verify --archive $(ARTIFACT) \

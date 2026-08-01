@@ -6,6 +6,7 @@ import importlib.util
 import argparse
 import json
 from pathlib import Path
+import subprocess
 import tarfile
 import tempfile
 import unittest
@@ -110,9 +111,10 @@ class ArtifactTests(unittest.TestCase):
             root = Path(temporary)
             build = root / "build"
             archives = []
-            fake_git_output = lambda repository, *args: (
-                "" if args == ("status", "--porcelain") else "b" * 40
-            )
+            def fake_git_output(repository, *args):
+                if args == ("status", "--porcelain"):
+                    raise subprocess.CalledProcessError(128, "git")
+                return "b" * 40
             with mock.patch.object(artifact, "git_output", fake_git_output):
                 for version in ("3.14.0", "3.14.1"):
                     self.make_synthetic_build(build, version)
@@ -122,6 +124,7 @@ class ArtifactTests(unittest.TestCase):
                         versions=[version],
                         output=archive_path,
                         producer_version="test",
+                        producer_commit="b" * 40,
                         sources=None,
                     ))
                     archives.append(archive_path)
@@ -135,6 +138,7 @@ class ArtifactTests(unittest.TestCase):
                     ],
                     output=range_archive,
                     producer_version="test",
+                    producer_commit="b" * 40,
                 ))
 
             with tempfile.TemporaryDirectory() as extracted:

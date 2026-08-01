@@ -120,7 +120,8 @@ jobs:
         run: |
           make pack-built verify \
             PYTHON_TAG=${{ inputs.python_tag }} \
-            PRODUCER_VERSION=${{ steps.identity.outputs.producer_version }}
+            PRODUCER_VERSION=${{ steps.identity.outputs.producer_version }} \
+            PRODUCER_COMMIT=${{ github.sha }}
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v5

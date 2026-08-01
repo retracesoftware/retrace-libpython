@@ -131,7 +131,8 @@ jobs:
             --versions "${versions[@]}" \
             "${sources[@]}" \
             --output "$range_artifact" \
-            --producer-version "$PRODUCER_VERSION"
+            --producer-version "$PRODUCER_VERSION" \
+            --producer-commit "${{ github.sha }}"
           python3 scripts/artifact verify \
             --archive "$range_artifact" --versions "${versions[@]}" --run
           echo "artifact=$range_artifact" >> "$GITHUB_OUTPUT"
