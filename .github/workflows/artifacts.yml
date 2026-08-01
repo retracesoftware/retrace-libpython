@@ -43,7 +43,7 @@ jobs:
             build-essential ca-certificates git libbz2-dev libdb-dev libexpat1-dev \
             libffi-dev libgdbm-compat-dev libgdbm-dev liblzma-dev \
             libncursesw5-dev libreadline-dev libsqlite3-dev libssl-dev \
-            pkg-config tk-dev uuid-dev xz-utils zlib1g-dev
+            pkg-config python3 tk-dev uuid-dev xz-utils zlib1g-dev
 
       - name: Build patch matrix
         run: |

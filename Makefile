@@ -51,6 +51,7 @@ prune-version:
 	    -type f -name 'libpython*.a' ! -name libpython.a -delete
 
 matrix:
+	test -n "$(VERSIONS)"
 	@set -e; for version in $(VERSIONS); do \
 	    $(MAKE) build-all VERSION=$$version; \
 	    $(MAKE) prune-version VERSION=$$version; \
