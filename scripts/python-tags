@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
-"""Validate exact CPython tags and derive inclusive patch ranges."""
+"""Validate exact final CPython tags."""
 
 import argparse
-import json
 import re
 
 
@@ -21,24 +20,8 @@ def main():
     subparsers = parser.add_subparsers(dest="command", required=True)
     exact = subparsers.add_parser("exact")
     exact.add_argument("tag")
-    tag_range = subparsers.add_parser("range")
-    tag_range.add_argument("first")
-    tag_range.add_argument("last")
-    tag_range.add_argument("--json", action="store_true")
     args = parser.parse_args()
-
-    if args.command == "exact":
-        print(".".join(map(str, parse_tag(args.tag))))
-        return
-
-    first = parse_tag(args.first)
-    last = parse_tag(args.last)
-    if first[:2] != last[:2]:
-        raise SystemExit("range endpoints must belong to the same minor series")
-    if first[2] >= last[2]:
-        raise SystemExit("range must contain at least two sequential patches")
-    tags = [f"v{first[0]}.{first[1]}.{patch}" for patch in range(first[2], last[2] + 1)]
-    print(json.dumps(tags) if args.json else " ".join(tags))
+    print(".".join(map(str, parse_tag(args.tag))))
 
 
 if __name__ == "__main__":

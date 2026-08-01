@@ -13,8 +13,8 @@ transport. It must not contain Retrace overlay sources or build `_retrace`.
 - Release and debug outputs must use separate build roots.
 - Exact artifacts are immutable and keyed by producer/profile revision, exact
   CPython tag, platform ABI, and architecture.
-- The producer contains no supported-version list. Callers supply exact tags;
-  range workflows derive sequential patch tags from endpoint inputs.
+- The producer contains no supported-version list. Callers supply exact tags
+  and download each patch artifact independently.
 - Archives contain `vX.Y.Z/{source,release,debug}` at their root.
 - Keep build, pack, verify, and install independent of GHCR transport.
 - Do not commit generated CPython source or build outputs.
@@ -28,6 +28,5 @@ make build-all PYTHON_TAG=v3.12.8 CPYTHON_REPO_URL=file:///opt/cpython.git
 make pack verify PYTHON_TAG=v3.12.8 PRODUCER_VERSION=0.2.0
 ```
 
-The exact workflow accepts one `python_tag`. The range workflow accepts first
-and last exact tags from one minor series, publishes missing exact artifacts,
-and composes the inclusive sequence without encoding support policy here.
+The workflow accepts one exact `python_tag`; support policy remains with the
+consumer.
