@@ -35,8 +35,8 @@ def main():
     last = parse_tag(args.last)
     if first[:2] != last[:2]:
         raise SystemExit("range endpoints must belong to the same minor series")
-    if first[2] > last[2]:
-        raise SystemExit("range start must not be after range end")
+    if first[2] >= last[2]:
+        raise SystemExit("range must contain at least two sequential patches")
     tags = [f"v{first[0]}.{first[1]}.{patch}" for patch in range(first[2], last[2] + 1)]
     print(json.dumps(tags) if args.json else " ".join(tags))
 

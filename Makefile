@@ -2,6 +2,10 @@
 
 PYTHON_TAG ?= v3.12.8
 VERSION := $(shell python3 scripts/python-tags exact $(PYTHON_TAG))
+FIRST_PYTHON_TAG ?= $(PYTHON_TAG)
+LAST_PYTHON_TAG ?= $(PYTHON_TAG)
+FIRST_VERSION := $(shell python3 scripts/python-tags exact $(FIRST_PYTHON_TAG))
+LAST_VERSION := $(shell python3 scripts/python-tags exact $(LAST_PYTHON_TAG))
 PROFILE ?= retrace-static-v1
 BUILD_MODE ?= release
 CPYTHON_REPO_URL ?= https://github.com/python/cpython.git
@@ -22,6 +26,9 @@ PLATFORM := $(shell python3 scripts/artifact platform-tag)
 ARTIFACT_NAME := retrace-libpython-$(PRODUCER_VERSION)-cpython-$(VERSION)-$(PLATFORM)-$(PROFILE).tar.xz
 ARTIFACT := $(ROOT)/dist/$(ARTIFACT_NAME)
 REFERENCE := $(REGISTRY):$(PRODUCER_VERSION)-cpython-$(VERSION)-$(PLATFORM)-$(PROFILE)
+RANGE_ARTIFACT_NAME := retrace-libpython-$(PRODUCER_VERSION)-cpython-$(FIRST_VERSION)-$(LAST_VERSION)-$(PLATFORM)-$(PROFILE).tar.xz
+RANGE_ARTIFACT := $(ROOT)/dist/$(RANGE_ARTIFACT_NAME)
+RANGE_REFERENCE := $(REGISTRY):$(PRODUCER_VERSION)-cpython-$(FIRST_VERSION)-$(LAST_VERSION)-$(PLATFORM)-$(PROFILE)
 
 ifeq ($(BUILD_MODE),release)
 CPYTHON_CFLAGS := -O3
@@ -33,7 +40,7 @@ else
 $(error BUILD_MODE must be release or debug, not '$(BUILD_MODE)')
 endif
 
-.PHONY: all build build-all prune-version pack pack-built verify install push pull print-artifact print-reference test clean
+.PHONY: all build build-all prune-version pack pack-built verify install push pull print-artifact print-reference print-range-artifact print-range-reference test clean
 
 all: build
 
@@ -81,6 +88,12 @@ print-artifact:
 
 print-reference:
 	@printf '%s\n' '$(REFERENCE)'
+
+print-range-artifact:
+	@printf '%s\n' '$(RANGE_ARTIFACT)'
+
+print-range-reference:
+	@printf '%s\n' '$(RANGE_REFERENCE)'
 
 test:
 	python3 -m unittest discover -s tests -v

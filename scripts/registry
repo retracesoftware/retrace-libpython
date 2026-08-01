@@ -2,7 +2,7 @@
 set -eu
 
 usage() {
-    echo "usage: scripts/registry exists REFERENCE | push|pull REFERENCE ARCHIVE" >&2
+    echo "usage: scripts/registry exists|digest REFERENCE | push|pull REFERENCE ARCHIVE" >&2
     exit 2
 }
 
@@ -15,11 +15,16 @@ command -v oras >/dev/null 2>&1 || {
     exit 127
 }
 
-media_type=application/vnd.retracesoftware.libpython.bundle.v2+xz
+media_type=application/vnd.retracesoftware.libpython.bundle.v3+xz
 case "$command" in
     exists)
         [ -z "$archive" ] || usage
         oras manifest fetch "$reference" >/dev/null
+        ;;
+    digest)
+        [ -z "$archive" ] || usage
+        oras manifest fetch --descriptor "$reference" |
+            python3 -c 'import json, sys; print(json.load(sys.stdin)["digest"])'
         ;;
     push)
         [ -n "$archive" ] || usage

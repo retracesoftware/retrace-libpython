@@ -27,3 +27,7 @@ make build PYTHON_TAG=v3.12.8 BUILD_MODE=debug CPYTHON_REPO_URL=file:///opt/cpyt
 make build-all PYTHON_TAG=v3.12.8 CPYTHON_REPO_URL=file:///opt/cpython.git
 make pack verify PYTHON_TAG=v3.12.8 PRODUCER_VERSION=0.2.0
 ```
+
+The exact workflow accepts one `python_tag`. The range workflow accepts first
+and last exact tags from one minor series, publishes missing exact artifacts,
+and composes the inclusive sequence without encoding support policy here.

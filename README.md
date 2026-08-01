@@ -81,3 +81,15 @@ all build, pack, verify, and install operations work locally.
 The exact-artifact workflow accepts `python_tag`. A separate range workflow
 accepts two tags in one minor series and composes the inclusive sequence,
 building only exact artifacts that are absent from GHCR.
+
+## Workflows
+
+`artifacts.yml` receives one final tag such as `v3.14.5` and produces one
+immutable exact artifact per architecture. `range.yml` receives inclusive
+`first_python_tag` and `last_python_tag` endpoints from the same minor series.
+It probes every exact artifact in that sequence, builds and publishes only
+missing exact artifacts, and then composes one range artifact per architecture.
+
+Publishing requires dispatching from a `retrace-libpython` release tag. Range
+manifests record the OCI reference, immutable manifest digest, and archive
+checksum of every exact source artifact.
