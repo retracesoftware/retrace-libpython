@@ -72,7 +72,7 @@ jobs:
         if: ${{ runner.os == 'macOS' }}
         run: |
           brew install pkg-config openssl@3 xz
-          echo "PKG_CONFIG_PATH=$(brew --prefix openssl@3)/lib/pkgconfig" >> "$GITHUB_ENV"
+          echo "PKG_CONFIG_PATH=$(brew --prefix openssl@3)/lib/pkgconfig:$(brew --prefix xz)/lib/pkgconfig" >> "$GITHUB_ENV"
 
       - name: Resolve immutable identity
         id: identity

@@ -9,6 +9,10 @@ so a new CPython patch release requires no source change here. One immutable
 artifact contains one exact patch in both release and debug modes. Consumers
 download and extract the exact artifacts they need.
 
+macOS builds target macOS 11.0 by default. Override
+`MACOSX_DEPLOYMENT_TARGET` only when intentionally producing a distinct
+compatibility profile.
+
 ## Build
 
 ```bash

@@ -9,6 +9,7 @@ JOBS ?= $(shell getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2)
 PRODUCER_VERSION ?= $(shell git describe --tags --exact-match 2>/dev/null | sed 's/^v//' || git rev-parse --short=12 HEAD)
 PRODUCER_COMMIT ?= $(shell git rev-parse HEAD)
 REGISTRY ?= ghcr.io/retracesoftware/retrace-libpython
+MACOSX_DEPLOYMENT_TARGET ?= 11.0
 
 ROOT := $(CURDIR)
 VERSION_ROOT := $(ROOT)/build/v$(VERSION)
@@ -23,6 +24,15 @@ PLATFORM := $(shell python3 scripts/artifact platform-tag)
 ARTIFACT_NAME := retrace-libpython-$(PRODUCER_VERSION)-cpython-$(VERSION)-$(PLATFORM)-$(PROFILE).tar.xz
 ARTIFACT := $(ROOT)/dist/$(ARTIFACT_NAME)
 REFERENCE := $(REGISTRY):$(PRODUCER_VERSION)-cpython-$(VERSION)-$(PLATFORM)-$(PROFILE)
+HOST_SYSTEM := $(shell uname -s)
+
+ifeq ($(HOST_SYSTEM),Darwin)
+PLATFORM_BUILD_ENV := MACOSX_DEPLOYMENT_TARGET=$(MACOSX_DEPLOYMENT_TARGET)
+METADATA_PLATFORM_ARGS := --deployment-target=$(MACOSX_DEPLOYMENT_TARGET)
+else
+PLATFORM_BUILD_ENV :=
+METADATA_PLATFORM_ARGS :=
+endif
 
 ifeq ($(BUILD_MODE),release)
 CPYTHON_CFLAGS := -O3
@@ -93,13 +103,13 @@ $(SOURCE)/configure:
 
 $(CONFIG_STAMP): $(SOURCE)/configure
 	mkdir -p $(MODE_ROOT)
-	cd $(MODE_ROOT) && $(SOURCE)/configure --without-ensurepip -q \
+	cd $(MODE_ROOT) && $(PLATFORM_BUILD_ENV) $(SOURCE)/configure --without-ensurepip -q \
 	    $(CONFIGURE_MODE_ARGS) CFLAGS="$(CPYTHON_CFLAGS)" \
 	    CFLAGS_NODIST="-fPIC -ffunction-sections -fdata-sections"
 	touch $@
 
 $(PYTHON): $(CONFIG_STAMP)
-	cd $(MODE_ROOT) && env MAKEFLAGS= $(MAKE) -j$(JOBS)
+	cd $(MODE_ROOT) && env MAKEFLAGS= $(PLATFORM_BUILD_ENV) $(MAKE) -j$(JOBS)
 
 $(LIBPYTHON): $(PYTHON)
 	set -- $(MODE_ROOT)/libpython$(PYMINOR)*.a; \
@@ -111,7 +121,8 @@ $(METADATA): $(LIBPYTHON) scripts/write-metadata
 	    --version $(VERSION) --mode $(BUILD_MODE) --profile $(PROFILE) \
 	    --cflags="$(CPYTHON_CFLAGS)" \
 	    --configure-args="--without-ensurepip $(CONFIGURE_MODE_ARGS)" \
-	    --cflags-nodist="-fPIC -ffunction-sections -fdata-sections"
+	    --cflags-nodist="-fPIC -ffunction-sections -fdata-sections" \
+	    $(METADATA_PLATFORM_ARGS)
 
 $(ARTIFACT):
 	$(MAKE) pack PYTHON_TAG=$(PYTHON_TAG) PRODUCER_VERSION=$(PRODUCER_VERSION)

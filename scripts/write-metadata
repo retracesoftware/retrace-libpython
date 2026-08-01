@@ -23,6 +23,7 @@ def main():
     parser.add_argument("--cflags", required=True)
     parser.add_argument("--configure-args", required=True)
     parser.add_argument("--cflags-nodist", required=True)
+    parser.add_argument("--deployment-target")
     args = parser.parse_args()
 
     python = args.build / "python"
@@ -51,6 +52,8 @@ def main():
             "libpython": libpython.name,
         },
     }
+    if args.deployment_target:
+        metadata["platform"]["deployment_target"] = args.deployment_target
     args.output.write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n")
 
 
