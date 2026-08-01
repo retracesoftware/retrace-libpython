@@ -29,5 +29,5 @@ make pack verify PYTHON_TAG=v3.12.8 PRODUCER_VERSION=0.2.0
 ```
 
 The exact workflow accepts one `python_tag` and an optional platform; support
-policy and multi-patch aggregation remain outside this repository. Producer
-release tags dispatch `retracesoftware/retrace-libpython-series`.
+policy and multi-patch aggregation remain outside this repository. Builds are
+started explicitly by callers or people, never by repository event triggers.

@@ -90,7 +90,5 @@ releases pull those exact artifacts independently and extract each into the
 same `build/` directory.
 
 Publishing requires dispatching from a `retrace-libpython` release tag.
-Pushing a producer release tag runs `refresh-series.yml`, which dispatches the
-separate `retrace-libpython-series` aggregator for that producer version. The
-repository secret `RETRACE_LIBPYTHON_SERIES_TOKEN` must be able to run workflows
-in `retracesoftware/retrace-libpython-series`.
+The repository has no automatic push, tag, or scheduled artifact builds;
+callers and people explicitly request each exact patch they need.
