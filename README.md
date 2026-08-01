@@ -78,7 +78,9 @@ make pull PYTHON_TAG=v3.12.8 PRODUCER_VERSION=0.2.0
 An existing concrete tag is never replaced. Registry transport is optional;
 all build, pack, verify, and install operations work locally.
 
-The artifact workflow accepts one exact `python_tag`.
+The artifact workflow accepts one exact `python_tag` and an optional target
+platform. Exact artifacts remain immutable and are the only bundles this
+repository produces.
 
 ## Workflows
 
@@ -88,3 +90,7 @@ releases pull those exact artifacts independently and extract each into the
 same `build/` directory.
 
 Publishing requires dispatching from a `retrace-libpython` release tag.
+Pushing a producer release tag runs `refresh-series.yml`, which dispatches the
+separate `retrace-libpython-series` aggregator for that producer version. The
+repository secret `RETRACE_LIBPYTHON_SERIES_TOKEN` must be able to run workflows
+in `retracesoftware/retrace-libpython-series`.

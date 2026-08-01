@@ -8,6 +8,15 @@ on:
         required: true
         default: "v3.14.5"
         type: string
+      platform:
+        description: Target platform
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - linux-x86_64
+          - linux-arm64
       publish:
         description: Publish the verified bundle to GHCR
         required: true
@@ -23,6 +32,11 @@ on:
         description: Publish a missing artifact to GHCR
         required: true
         type: boolean
+      platform:
+        description: Target platform, or all platforms
+        required: false
+        default: all
+        type: string
 
 permissions:
   contents: read
@@ -33,11 +47,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - runner: ubuntu-24.04
-            platform: linux-x86_64
-          - runner: ubuntu-24.04-arm
-            platform: linux-arm64
+        include: ${{ fromJSON(inputs.platform == 'linux-x86_64' && '[{"runner":"ubuntu-24.04","platform":"linux-x86_64"}]' || inputs.platform == 'linux-arm64' && '[{"runner":"ubuntu-24.04-arm","platform":"linux-arm64"}]' || '[{"runner":"ubuntu-24.04","platform":"linux-x86_64"},{"runner":"ubuntu-24.04-arm","platform":"linux-arm64"}]') }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 360
     container: ubuntu:22.04
