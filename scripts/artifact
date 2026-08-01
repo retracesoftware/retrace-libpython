@@ -82,6 +82,8 @@ def copy_mode(source, destination):
     destination.mkdir(parents=True)
     for name in MODE_FILES:
         path = source / name
+        if name == "python" and not path.is_file():
+            path = source / "python.exe"
         if path.exists():
             if path.is_symlink():
                 destination.joinpath(name).symlink_to(os.readlink(path))

@@ -36,6 +36,19 @@ class ArtifactTests(unittest.TestCase):
             self.assertEqual(list(inventory), ["a", "b"])
             self.assertEqual(inventory["a"]["size"], 5)
 
+    def test_copy_mode_normalizes_macos_python_executable(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "source"
+            destination = root / "destination"
+            (source / "python").mkdir(parents=True)
+            (source / "python.exe").write_text("executable")
+            (source / "build").mkdir()
+
+            artifact.copy_mode(source, destination)
+
+            self.assertEqual((destination / "python").read_text(), "executable")
+
     def test_xz_archive_has_exact_version_root(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
