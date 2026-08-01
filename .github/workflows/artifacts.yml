@@ -87,6 +87,10 @@ jobs:
               *) echo "Producer release tags must start with v" >&2; exit 1 ;;
             esac
           else
+            if [ "$PUBLISH" = true ]; then
+              echo "Publishing requires dispatching from a retrace-libpython release tag" >&2
+              exit 1
+            fi
             producer_version=$(git rev-parse --short=12 HEAD)
           fi
           reference=$(make -s print-reference \
