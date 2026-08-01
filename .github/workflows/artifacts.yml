@@ -3,15 +3,10 @@ name: Build libpython artifacts
 on:
   workflow_dispatch:
     inputs:
-      python_version:
-        description: Exact CPython patch release
-        required: true
-        default: "3.12.8"
-        type: string
       producer_version:
         description: Immutable producer release identifier
         required: true
-        default: "0.1.0-dev"
+        default: "0.2.0-dev"
         type: string
       publish:
         description: Publish the verified bundle to GHCR
@@ -35,6 +30,7 @@ jobs:
             platform: linux-arm64
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 360
+    container: ubuntu:22.04
 
     steps:
       - name: Check out repository
@@ -42,30 +38,28 @@ jobs:
 
       - name: Install build dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends \
-            build-essential git libbz2-dev libdb-dev libexpat1-dev \
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends \
+            build-essential ca-certificates git libbz2-dev libdb-dev libexpat1-dev \
             libffi-dev libgdbm-compat-dev libgdbm-dev liblzma-dev \
             libncursesw5-dev libreadline-dev libsqlite3-dev libssl-dev \
             pkg-config tk-dev uuid-dev xz-utils zlib1g-dev
 
-      - name: Build both modes
+      - name: Build patch matrix
         run: |
-          make build-all \
-            VERSION=${{ inputs.python_version }} \
+          make matrix \
             CPYTHON_REPO_URL=https://github.com/python/cpython.git
 
       - name: Pack and verify
         run: |
-          make pack verify \
-            VERSION=${{ inputs.python_version }} \
+          make pack-built verify \
             PRODUCER_VERSION=${{ inputs.producer_version }}
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v5
         with:
-          name: retrace-libpython-${{ inputs.python_version }}-${{ matrix.platform }}
-          path: dist/*.tar.gz
+          name: retrace-libpython-${{ inputs.producer_version }}-${{ matrix.platform }}
+          path: dist/*.tar.xz
           if-no-files-found: error
           retention-days: 14
 
@@ -81,5 +75,4 @@ jobs:
         if: ${{ inputs.publish }}
         run: |
           make push \
-            VERSION=${{ inputs.python_version }} \
             PRODUCER_VERSION=${{ inputs.producer_version }}

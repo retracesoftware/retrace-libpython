@@ -2,9 +2,10 @@
 """Pack, verify, and install retrace-libpython artifact bundles."""
 
 import argparse
-import gzip
 import hashlib
+import io
 import json
+import lzma
 import os
 from pathlib import Path
 import platform
@@ -14,7 +15,7 @@ import tarfile
 import tempfile
 
 
-SCHEMA = 1
+SCHEMA = 2
 MODES = ("release", "debug")
 MODE_FILES = (
     "python",
@@ -96,8 +97,8 @@ def copy_mode(source, destination):
     write_launcher(destination)
 
 
-def load_mode_metadata(root, mode):
-    path = root / mode / "retrace-libpython.json"
+def load_mode_metadata(version_root, mode):
+    path = version_root / mode / "retrace-libpython.json"
     try:
         return json.loads(path.read_text())
     except FileNotFoundError as error:
@@ -126,10 +127,30 @@ def normalized_tar_info(info):
 
 def create_archive(source, output):
     output.parent.mkdir(parents=True, exist_ok=True)
-    with output.open("wb") as raw:
-        with gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0) as compressed:
-            with tarfile.open(mode="w", fileobj=compressed, format=tarfile.PAX_FORMAT) as archive:
-                archive.add(source, arcname=".", filter=normalized_tar_info)
+    with lzma.open(
+        output,
+        mode="wb",
+        format=lzma.FORMAT_XZ,
+        preset=9 | lzma.PRESET_EXTREME,
+    ) as compressed:
+        with tarfile.open(
+            mode="w|", fileobj=compressed, format=tarfile.PAX_FORMAT
+        ) as archive:
+            add_tree(archive, source)
+
+
+def add_tree(archive, source, prefix=""):
+    for path in sorted(source.iterdir(), key=lambda item: item.name):
+        name = f"{prefix}/{path.name}" if prefix else path.name
+        archive.add(path, arcname=name, filter=normalized_tar_info)
+
+
+def add_bytes(archive, name, data):
+    info = tarfile.TarInfo(name)
+    info.size = len(data)
+    info.mode = 0o644
+    normalized_tar_info(info)
+    archive.addfile(info, io.BytesIO(data))
 
 
 def command_pack(args):
@@ -138,40 +159,74 @@ def command_pack(args):
     repository = Path(__file__).resolve().parents[1]
     if git_output(repository, "status", "--porcelain"):
         raise SystemExit("refusing to pack from a dirty producer checkout")
-    metadata = {mode: load_mode_metadata(root, mode) for mode in MODES}
-    versions = {item["cpython"]["version"] for item in metadata.values()}
-    commits = {item["cpython"]["commit"] for item in metadata.values()}
-    profiles = {item["profile"] for item in metadata.values()}
-    if len(versions) != 1 or len(commits) != 1 or len(profiles) != 1:
-        raise SystemExit("release and debug metadata identities do not match")
-
-    with tempfile.TemporaryDirectory(dir=args.output.parent) as temporary:
-        stage = Path(temporary) / "payload"
-        copy_source(root / "source", stage / "source")
-        for mode in MODES:
-            copy_mode(root / mode, stage / mode)
-        manifest = {
-            "schema": SCHEMA,
-            "producer": {
-                "version": args.producer_version,
-                "commit": git_output(repository, "rev-parse", "HEAD"),
-            },
-            "profile": profiles.pop(),
-            "cpython": {"version": versions.pop(), "commit": commits.pop()},
-            "platform": platform_tag(),
-            "modes": metadata,
-            "files": file_inventory(stage),
+    requested_versions = args.versions
+    version_records = {}
+    profiles = set()
+    for version in requested_versions:
+        version_root = root / f"v{version}"
+        metadata = {
+            mode: load_mode_metadata(version_root, mode) for mode in MODES
         }
-        (stage / "artifact-manifest.json").write_text(
-            json.dumps(manifest, indent=2, sort_keys=True) + "\n"
-        )
-        create_archive(stage, args.output)
+        versions = {item["cpython"]["version"] for item in metadata.values()}
+        commits = {item["cpython"]["commit"] for item in metadata.values()}
+        mode_profiles = {item["profile"] for item in metadata.values()}
+        if versions != {version} or len(commits) != 1 or len(mode_profiles) != 1:
+            raise SystemExit(
+                f"release and debug metadata identities do not match for {version}"
+            )
+        profiles.update(mode_profiles)
+        version_records[version] = {
+            "commit": commits.pop(),
+            "modes": metadata,
+        }
+    if len(profiles) != 1:
+        raise SystemExit("all versions must use the same build profile")
+
+    inventory = {}
+    with lzma.open(
+        args.output,
+        mode="wb",
+        format=lzma.FORMAT_XZ,
+        preset=9 | lzma.PRESET_EXTREME,
+    ) as compressed:
+        with tarfile.open(
+            mode="w|", fileobj=compressed, format=tarfile.PAX_FORMAT
+        ) as archive:
+            with tempfile.TemporaryDirectory(dir=args.output.parent) as temporary:
+                temporary_root = Path(temporary)
+                for version in requested_versions:
+                    source_root = root / f"v{version}"
+                    stage = temporary_root / f"v{version}"
+                    copy_source(source_root / "source", stage / "source")
+                    for mode in MODES:
+                        copy_mode(source_root / mode, stage / mode)
+                    for relative, record in file_inventory(stage).items():
+                        inventory[f"v{version}/{relative}"] = record
+                    add_tree(archive, stage, f"v{version}")
+                    shutil.rmtree(stage)
+            manifest = {
+                "schema": SCHEMA,
+                "producer": {
+                    "version": args.producer_version,
+                    "commit": git_output(repository, "rev-parse", "HEAD"),
+                },
+                "profile": profiles.pop(),
+                "platform": platform_tag(),
+                "versions": version_records,
+                "files": inventory,
+            }
+            manifest_data = (
+                json.dumps(manifest, indent=2, sort_keys=True) + "\n"
+            ).encode()
+            add_bytes(
+                archive, "retrace-libpython-manifest.json", manifest_data
+            )
     print(args.output)
 
 
 def safe_extract(archive_path, destination):
     destination = destination.resolve()
-    with tarfile.open(archive_path, "r:gz") as archive:
+    with tarfile.open(archive_path, "r:xz") as archive:
         for member in archive.getmembers():
             target = (destination / member.name).resolve()
             if target != destination and destination not in target.parents:
@@ -179,14 +234,21 @@ def safe_extract(archive_path, destination):
         archive.extractall(destination)
 
 
-def verify_tree(root, run=False):
-    manifest_path = root / "artifact-manifest.json"
+def verify_tree(root, run=False, expected_versions=None):
+    manifest_path = root / "retrace-libpython-manifest.json"
     manifest = json.loads(manifest_path.read_text())
     if manifest.get("schema") != SCHEMA:
         raise SystemExit(f"unsupported artifact schema: {manifest.get('schema')}")
     if manifest.get("platform") != platform_tag():
         raise SystemExit(
             f"artifact platform {manifest.get('platform')} does not match {platform_tag()}"
+        )
+    actual_versions = set(manifest.get("versions", {}))
+    if expected_versions is not None and actual_versions != set(expected_versions):
+        missing = sorted(set(expected_versions) - actual_versions)
+        extra = sorted(actual_versions - set(expected_versions))
+        raise SystemExit(
+            f"artifact version matrix mismatch; missing={missing}, extra={extra}"
         )
     expected = manifest["files"]
     for relative, record in expected.items():
@@ -196,15 +258,20 @@ def verify_tree(root, run=False):
         if path.stat().st_size != record["size"] or sha256(path) != record["sha256"]:
             raise SystemExit(f"artifact checksum mismatch: {relative}")
     if run:
-        version = tuple(int(part) for part in manifest["cpython"]["version"].split("."))
-        probe = (
-            "import _ssl, sys; "
-            f"assert sys.version_info[:3] == {version!r}; "
-            "assert hasattr(sys, 'gettotalrefcount') == "
-        )
-        for mode in MODES:
-            expression = probe + ("True" if mode == "debug" else "False")
-            subprocess.run([root / mode / "python-relocatable", "-c", expression], check=True)
+        for version_value in manifest["versions"]:
+            version = tuple(int(part) for part in version_value.split("."))
+            probe = (
+                "import _ssl, sys; "
+                f"assert sys.version_info[:3] == {version!r}; "
+                "assert hasattr(sys, 'gettotalrefcount') == "
+            )
+            for mode in MODES:
+                expression = probe + ("True" if mode == "debug" else "False")
+                subprocess.run(
+                    [root / f"v{version_value}" / mode / "python-relocatable",
+                     "-c", expression],
+                    check=True,
+                )
     return manifest
 
 
@@ -214,28 +281,37 @@ def command_verify(args):
             root = Path(temporary) / "payload"
             root.mkdir()
             safe_extract(args.archive, root)
-            manifest = verify_tree(root, args.run)
+            manifest = verify_tree(root, args.run, args.versions)
     else:
-        manifest = verify_tree(args.root.resolve(), args.run)
+        manifest = verify_tree(args.root.resolve(), args.run, args.versions)
     print(
-        f"verified CPython {manifest['cpython']['version']} "
-        f"{manifest['platform']} ({manifest['producer']['version']})"
+        f"verified {len(manifest['versions'])} CPython patch releases "
+        f"for {manifest['platform']} ({manifest['producer']['version']})"
     )
 
 
 def command_install(args):
     destination = args.destination.resolve()
-    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=destination.parent) as temporary:
         stage = Path(temporary) / "payload"
         stage.mkdir()
         safe_extract(args.archive, stage)
-        verify_tree(stage, args.run)
-        if destination.exists():
-            if not args.force:
-                raise SystemExit(f"destination already exists: {destination}")
-            shutil.rmtree(destination)
-        os.replace(stage, destination)
+        verify_tree(stage, args.run, args.versions)
+        managed_names = [path.name for path in stage.iterdir()]
+        existing = [name for name in managed_names if (destination / name).exists()]
+        if existing and not args.force:
+            raise SystemExit(
+                "artifact paths already exist in destination: " + ", ".join(existing)
+            )
+        for name in existing:
+            path = destination / name
+            if path.is_dir():
+                shutil.rmtree(path)
+            else:
+                path.unlink()
+        for path in stage.iterdir():
+            os.replace(path, destination / path.name)
     print(destination)
 
 
@@ -248,6 +324,7 @@ def main():
 
     pack = subparsers.add_parser("pack")
     pack.add_argument("--root", required=True, type=Path)
+    pack.add_argument("--versions", nargs="+", required=True)
     pack.add_argument("--output", required=True, type=Path)
     pack.add_argument("--producer-version", required=True)
     pack.set_defaults(func=command_pack)
@@ -257,6 +334,7 @@ def main():
     source.add_argument("--archive", type=Path)
     source.add_argument("--root", type=Path)
     verify.add_argument("--run", action="store_true")
+    verify.add_argument("--versions", nargs="+")
     verify.set_defaults(func=command_verify)
 
     install = subparsers.add_parser("install")
@@ -264,6 +342,7 @@ def main():
     install.add_argument("--destination", required=True, type=Path)
     install.add_argument("--force", action="store_true")
     install.add_argument("--run", action="store_true")
+    install.add_argument("--versions", nargs="+")
     install.set_defaults(func=command_install)
 
     args = parser.parse_args()

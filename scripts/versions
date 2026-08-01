@@ -1,0 +1,22 @@
+#!/usr/bin/env python3
+"""Print and validate the checked-in CPython patch matrix."""
+
+from pathlib import Path
+import re
+
+
+ROOT = Path(__file__).resolve().parents[1]
+PATTERN = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
+versions = []
+for line_number, line in enumerate((ROOT / "versions.txt").read_text().splitlines(), 1):
+    value = line.strip()
+    if not value or value.startswith("#"):
+        continue
+    if not PATTERN.fullmatch(value):
+        raise SystemExit(f"versions.txt:{line_number}: invalid version: {value}")
+    versions.append(value)
+if not versions or len(versions) != len(set(versions)):
+    raise SystemExit("versions.txt must contain unique versions")
+if versions != sorted(versions, key=lambda value: tuple(map(int, value.split(".")))):
+    raise SystemExit("versions.txt must be numerically sorted")
+print(" ".join(versions))

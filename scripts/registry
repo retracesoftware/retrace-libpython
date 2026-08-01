@@ -15,14 +15,15 @@ command -v oras >/dev/null 2>&1 || {
     exit 127
 }
 
-media_type=application/vnd.retracesoftware.libpython.bundle.v1+gzip
+media_type=application/vnd.retracesoftware.libpython.bundle.v2+xz
 case "$command" in
     push)
         if oras manifest fetch "$reference" >/dev/null 2>&1; then
             echo "refusing to replace existing artifact: $reference" >&2
             exit 1
         fi
-        archive_directory=$(CDPATH= cd -- "$(dirname -- "$archive")" && pwd)
+        archive_directory=$(dirname -- "$archive")
+        archive_directory=$(unset CDPATH; cd -- "$archive_directory" && pwd)
         archive_name=$(basename -- "$archive")
         cd "$archive_directory"
         oras push "$reference" \

@@ -7,6 +7,7 @@ CPYTHON_REPO_URL ?= https://github.com/python/cpython.git
 JOBS ?= $(shell getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2)
 PRODUCER_VERSION ?= dev
 REGISTRY ?= ghcr.io/retracesoftware/retrace-libpython
+VERSIONS ?= $(shell python3 scripts/versions)
 
 ROOT := $(CURDIR)
 VERSION_ROOT := $(ROOT)/build/v$(VERSION)
@@ -18,9 +19,9 @@ LIBPYTHON := $(MODE_ROOT)/libpython.a
 METADATA := $(MODE_ROOT)/retrace-libpython.json
 PYMINOR := $(basename $(VERSION))
 PLATFORM := $(shell python3 scripts/artifact platform-tag)
-ARTIFACT_NAME := retrace-libpython-$(PRODUCER_VERSION)-cpython-$(VERSION)-$(PLATFORM).tar.gz
+ARTIFACT_NAME := retrace-libpython-$(PRODUCER_VERSION)-$(PLATFORM)-$(PROFILE).tar.xz
 ARTIFACT := $(ROOT)/dist/$(ARTIFACT_NAME)
-REFERENCE := $(REGISTRY):$(PRODUCER_VERSION)-cpython-$(VERSION)-$(PLATFORM)-$(PROFILE)
+REFERENCE := $(REGISTRY):$(PRODUCER_VERSION)-$(PLATFORM)-$(PROFILE)
 
 ifeq ($(BUILD_MODE),release)
 CPYTHON_CFLAGS := -O3
@@ -32,7 +33,7 @@ else
 $(error BUILD_MODE must be release or debug, not '$(BUILD_MODE)')
 endif
 
-.PHONY: all build build-all pack verify install push pull test clean
+.PHONY: all build build-all prune-version matrix pack pack-built verify install push pull test clean
 
 all: build
 
@@ -42,17 +43,35 @@ build-all:
 	$(MAKE) build VERSION=$(VERSION) BUILD_MODE=release
 	$(MAKE) build VERSION=$(VERSION) BUILD_MODE=debug
 
-pack: build-all
-	python3 scripts/artifact pack --root $(VERSION_ROOT) \
+prune-version:
+	find $(VERSION_ROOT)/release $(VERSION_ROOT)/debug -type f -name '*.o' -delete
+	rm -f $(VERSION_ROOT)/release/_bootstrap_python \
+	    $(VERSION_ROOT)/debug/_bootstrap_python
+	find $(VERSION_ROOT)/release $(VERSION_ROOT)/debug -maxdepth 1 \
+	    -type f -name 'libpython*.a' ! -name libpython.a -delete
+
+matrix:
+	@set -e; for version in $(VERSIONS); do \
+	    $(MAKE) build-all VERSION=$$version; \
+	    $(MAKE) prune-version VERSION=$$version; \
+	done
+
+pack: matrix
+	$(MAKE) pack-built PRODUCER_VERSION=$(PRODUCER_VERSION) VERSIONS="$(VERSIONS)"
+
+pack-built:
+	python3 scripts/artifact pack --root $(ROOT)/build --versions $(VERSIONS) \
 	    --output $(ARTIFACT) --producer-version $(PRODUCER_VERSION)
 
 verify: $(ARTIFACT)
-	python3 scripts/artifact verify --archive $(ARTIFACT) --run
+	python3 scripts/artifact verify --archive $(ARTIFACT) \
+	    --versions $(VERSIONS) --run
 
 install: $(ARTIFACT)
 	test -n "$(DESTINATION)"
 	python3 scripts/artifact install --archive $(ARTIFACT) \
-	    --destination $(DESTINATION) --run $(INSTALL_FLAGS)
+	    --destination $(DESTINATION) --versions $(VERSIONS) \
+	    --run $(INSTALL_FLAGS)
 
 push: verify
 	scripts/registry push $(REFERENCE) $(ARTIFACT)
@@ -60,7 +79,8 @@ push: verify
 pull:
 	mkdir -p $(dir $(ARTIFACT))
 	scripts/registry pull $(REFERENCE) $(ARTIFACT)
-	python3 scripts/artifact verify --archive $(ARTIFACT) --run
+	python3 scripts/artifact verify --archive $(ARTIFACT) \
+	    --versions $(VERSIONS) --run
 
 test:
 	python3 -m unittest discover -s tests -v
@@ -92,7 +112,7 @@ $(METADATA): $(LIBPYTHON) scripts/write-metadata
 	    --cflags-nodist="-fPIC -ffunction-sections -fdata-sections"
 
 $(ARTIFACT):
-	$(MAKE) pack VERSION=$(VERSION) PRODUCER_VERSION=$(PRODUCER_VERSION)
+	$(MAKE) pack PRODUCER_VERSION=$(PRODUCER_VERSION) VERSIONS="$(VERSIONS)"
 
 clean:
 	rm -rf $(VERSION_ROOT)

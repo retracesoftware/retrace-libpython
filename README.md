@@ -4,6 +4,10 @@ Builds exact-patch CPython prerequisite bundles for Retrace. The producer owns
 the CPython compiler/configuration profile; it does not contain Retrace overlay
 sources or build `_retrace`.
 
+`versions.txt` is the authoritative supported patch matrix. One artifact is
+published per producer release, build profile, platform, and architecture; it
+contains every listed patch release in both release and debug modes.
+
 ## Build
 
 ```bash
@@ -13,6 +17,7 @@ make build VERSION=3.12.8 BUILD_MODE=debug \
   CPYTHON_REPO_URL=file:///opt/cpython.git
 make build-all VERSION=3.12.8 \
   CPYTHON_REPO_URL=file:///opt/cpython.git
+make matrix CPYTHON_REPO_URL=file:///opt/cpython.git
 ```
 
 Each mode has an independent out-of-tree build under
@@ -21,19 +26,34 @@ Each mode has an independent out-of-tree build under
 
 ## Artifacts
 
-Create and verify a deterministic bundle containing pristine source and both
-build modes:
+Create and verify one deterministic, maximum-compression XZ bundle containing
+pristine source and both build modes for every version in `versions.txt`:
 
 ```bash
-make pack verify VERSION=3.12.8 PRODUCER_VERSION=0.1.0
+make pack verify PRODUCER_VERSION=0.2.0
 ```
+
+The archive has no `build/` wrapper. Its entries are directly rooted at patch
+directories:
+
+```text
+v3.11.0/source/
+v3.11.0/release/
+v3.11.0/debug/
+...
+v3.14.6/source/
+v3.14.6/release/
+v3.14.6/debug/
+retrace-libpython-manifest.json
+```
+
+It can therefore be extracted directly into a consumer's `build/` directory.
 
 Install the bundle into a different root and validate its relocated
 interpreters:
 
 ```bash
-make install VERSION=3.12.8 PRODUCER_VERSION=0.1.0 \
-  DESTINATION=/tmp/retrace-libpython-3.12.8
+make install PRODUCER_VERSION=0.2.0 DESTINATION=/path/to/retrace-eval/build
 ```
 
 Each installed mode provides:
@@ -50,12 +70,13 @@ transformation, filtering, and extension outputs.
 ## GHCR
 
 Install `oras`, authenticate to GHCR, and publish or fetch the immutable
-identity derived from the producer version, CPython patch, platform, and
-profile:
+identity derived from the producer version, platform, architecture, and
+profile. The identity does not contain a CPython patch because the single
+bundle contains the complete checked-in matrix:
 
 ```bash
-make push VERSION=3.12.8 PRODUCER_VERSION=0.1.0
-make pull VERSION=3.12.8 PRODUCER_VERSION=0.1.0
+make push PRODUCER_VERSION=0.2.0
+make pull PRODUCER_VERSION=0.2.0
 ```
 
 An existing concrete tag is never replaced. Registry transport is optional;
