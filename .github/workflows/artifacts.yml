@@ -17,6 +17,8 @@ on:
           - all
           - linux-x86_64
           - linux-arm64
+          - macos-x86_64
+          - macos-arm64
       publish:
         description: Publish the verified bundle to GHCR
         required: true
@@ -47,16 +49,17 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJSON(inputs.platform == 'linux-x86_64' && '[{"runner":"ubuntu-24.04","platform":"linux-x86_64"}]' || inputs.platform == 'linux-arm64' && '[{"runner":"ubuntu-24.04-arm","platform":"linux-arm64"}]' || '[{"runner":"ubuntu-24.04","platform":"linux-x86_64"},{"runner":"ubuntu-24.04-arm","platform":"linux-arm64"}]') }}
+        include: ${{ fromJSON(inputs.platform == 'linux-x86_64' && '[{"runner":"ubuntu-24.04","platform":"linux-x86_64","container":"ubuntu:22.04"}]' || inputs.platform == 'linux-arm64' && '[{"runner":"ubuntu-24.04-arm","platform":"linux-arm64","container":"ubuntu:22.04"}]' || inputs.platform == 'macos-x86_64' && '[{"runner":"macos-15-intel","platform":"macos-x86_64"}]' || inputs.platform == 'macos-arm64' && '[{"runner":"macos-15","platform":"macos-arm64"}]' || '[{"runner":"ubuntu-24.04","platform":"linux-x86_64","container":"ubuntu:22.04"},{"runner":"ubuntu-24.04-arm","platform":"linux-arm64","container":"ubuntu:22.04"},{"runner":"macos-15-intel","platform":"macos-x86_64"},{"runner":"macos-15","platform":"macos-arm64"}]') }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 360
-    container: ubuntu:22.04
+    container: ${{ matrix.container }}
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v5
 
-      - name: Install build dependencies
+      - name: Install Linux build dependencies
+        if: ${{ runner.os == 'Linux' }}
         run: |
           apt-get update
           DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends \
@@ -64,6 +67,12 @@ jobs:
             libffi-dev libgdbm-compat-dev libgdbm-dev liblzma-dev \
             libncursesw5-dev libreadline-dev libsqlite3-dev libssl-dev \
             pkg-config python3 tk-dev uuid-dev xz-utils zlib1g-dev
+
+      - name: Install macOS build dependencies
+        if: ${{ runner.os == 'macOS' }}
+        run: |
+          brew install pkg-config openssl@3 xz
+          echo "PKG_CONFIG_PATH=$(brew --prefix openssl@3)/lib/pkgconfig" >> "$GITHUB_ENV"
 
       - name: Resolve immutable identity
         id: identity

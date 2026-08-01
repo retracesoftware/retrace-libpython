@@ -47,6 +47,8 @@ def git_output(root, *args):
 
 def platform_tag():
     system = platform.system().lower()
+    if system == "darwin":
+        system = "macos"
     machine = platform.machine().lower().replace("aarch64", "arm64")
     return f"{system}-{machine}"
 

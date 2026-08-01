@@ -85,9 +85,10 @@ repository produces.
 ## Workflows
 
 `artifacts.yml` receives one final tag such as `v3.14.5` and produces one
-immutable exact artifact per architecture. Consumers needing multiple patch
-releases pull those exact artifacts independently and extract each into the
-same `build/` directory.
+immutable exact artifact for each selected platform. The supported targets are
+`linux-x86_64`, `linux-arm64`, `macos-x86_64`, and `macos-arm64`. Consumers
+needing multiple patch releases pull those exact artifacts independently and
+extract each into the same `build/` directory.
 
 Publishing requires dispatching from a `retrace-libpython` release tag.
 The repository has no automatic push, tag, or scheduled artifact builds;

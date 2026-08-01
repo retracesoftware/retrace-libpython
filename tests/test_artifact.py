@@ -8,6 +8,7 @@ from pathlib import Path
 import tarfile
 import tempfile
 import unittest
+from unittest import mock
 
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "artifact"
@@ -20,6 +21,11 @@ loader.exec_module(artifact)
 class ArtifactTests(unittest.TestCase):
     def test_platform_tag_has_system_and_machine(self):
         self.assertRegex(artifact.platform_tag(), r"^[a-z0-9]+-[a-z0-9_]+$")
+
+    @mock.patch.object(artifact.platform, "machine", return_value="arm64")
+    @mock.patch.object(artifact.platform, "system", return_value="Darwin")
+    def test_platform_tag_uses_macos_name(self, _system, _machine):
+        self.assertEqual(artifact.platform_tag(), "macos-arm64")
 
     def test_inventory_is_relative_and_deterministic(self):
         with tempfile.TemporaryDirectory() as temporary:
