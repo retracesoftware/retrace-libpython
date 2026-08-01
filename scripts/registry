@@ -2,14 +2,14 @@
 set -eu
 
 usage() {
-    echo "usage: scripts/registry push|pull REFERENCE ARCHIVE" >&2
+    echo "usage: scripts/registry exists REFERENCE | push|pull REFERENCE ARCHIVE" >&2
     exit 2
 }
 
 command=${1:-}
 reference=${2:-}
 archive=${3:-}
-[ -n "$command" ] && [ -n "$reference" ] && [ -n "$archive" ] || usage
+[ -n "$command" ] && [ -n "$reference" ] || usage
 command -v oras >/dev/null 2>&1 || {
     echo "oras is required for GHCR transport" >&2
     exit 127
@@ -17,7 +17,12 @@ command -v oras >/dev/null 2>&1 || {
 
 media_type=application/vnd.retracesoftware.libpython.bundle.v2+xz
 case "$command" in
+    exists)
+        [ -z "$archive" ] || usage
+        oras manifest fetch "$reference" >/dev/null
+        ;;
     push)
+        [ -n "$archive" ] || usage
         if oras manifest fetch "$reference" >/dev/null 2>&1; then
             echo "refusing to replace existing artifact: $reference" >&2
             exit 1
@@ -32,6 +37,7 @@ case "$command" in
             "$archive_name:$media_type"
         ;;
     pull)
+        [ -n "$archive" ] || usage
         destination=$(dirname -- "$archive")
         mkdir -p "$destination"
         temporary=$(mktemp -d "$destination/.oras.XXXXXX")

@@ -4,20 +4,20 @@ Builds exact-patch CPython prerequisite bundles for Retrace. The producer owns
 the CPython compiler/configuration profile; it does not contain Retrace overlay
 sources or build `_retrace`.
 
-`versions.txt` is the authoritative supported patch matrix. One artifact is
-published per producer release, build profile, platform, and architecture; it
-contains every listed patch release in both release and debug modes.
+The producer contains no supported CPython version list. Exact tags are inputs,
+so a new CPython patch release requires no source change here. One immutable
+artifact contains one exact patch in both release and debug modes; range
+artifacts compose existing exact artifacts.
 
 ## Build
 
 ```bash
-make build VERSION=3.12.8 BUILD_MODE=release \
+make build PYTHON_TAG=v3.12.8 BUILD_MODE=release \
   CPYTHON_REPO_URL=file:///opt/cpython.git
-make build VERSION=3.12.8 BUILD_MODE=debug \
+make build PYTHON_TAG=v3.12.8 BUILD_MODE=debug \
   CPYTHON_REPO_URL=file:///opt/cpython.git
-make build-all VERSION=3.12.8 \
+make build-all PYTHON_TAG=v3.12.8 \
   CPYTHON_REPO_URL=file:///opt/cpython.git
-make matrix CPYTHON_REPO_URL=file:///opt/cpython.git
 ```
 
 Each mode has an independent out-of-tree build under
@@ -26,24 +26,20 @@ Each mode has an independent out-of-tree build under
 
 ## Artifacts
 
-Create and verify one deterministic, maximum-compression XZ bundle containing
-pristine source and both build modes for every version in `versions.txt`:
+Create and verify a deterministic, maximum-compression XZ bundle containing
+pristine source and both build modes for one exact tag:
 
 ```bash
-make pack verify PRODUCER_VERSION=0.2.0
+make pack verify PYTHON_TAG=v3.12.8 PRODUCER_VERSION=0.2.0
 ```
 
 The archive has no `build/` wrapper. Its entries are directly rooted at patch
 directories:
 
 ```text
-v3.11.0/source/
-v3.11.0/release/
-v3.11.0/debug/
-...
-v3.14.6/source/
-v3.14.6/release/
-v3.14.6/debug/
+v3.12.8/source/
+v3.12.8/release/
+v3.12.8/debug/
 retrace-libpython-manifest.json
 ```
 
@@ -53,7 +49,8 @@ Install the bundle into a different root and validate its relocated
 interpreters:
 
 ```bash
-make install PRODUCER_VERSION=0.2.0 DESTINATION=/path/to/retrace-eval/build
+make install PYTHON_TAG=v3.12.8 PRODUCER_VERSION=0.2.0 \
+  DESTINATION=/path/to/retrace-eval/build
 ```
 
 Each installed mode provides:
@@ -70,14 +67,17 @@ transformation, filtering, and extension outputs.
 ## GHCR
 
 Install `oras`, authenticate to GHCR, and publish or fetch the immutable
-identity derived from the producer version, platform, architecture, and
-profile. The identity does not contain a CPython patch because the single
-bundle contains the complete checked-in matrix:
+identity derived from the producer version, exact CPython tag, platform,
+architecture, and profile:
 
 ```bash
-make push PRODUCER_VERSION=0.2.0
-make pull PRODUCER_VERSION=0.2.0
+make push PYTHON_TAG=v3.12.8 PRODUCER_VERSION=0.2.0
+make pull PYTHON_TAG=v3.12.8 PRODUCER_VERSION=0.2.0
 ```
 
 An existing concrete tag is never replaced. Registry transport is optional;
 all build, pack, verify, and install operations work locally.
+
+The exact-artifact workflow accepts `python_tag`. A separate range workflow
+accepts two tags in one minor series and composes the inclusive sequence,
+building only exact artifacts that are absent from GHCR.

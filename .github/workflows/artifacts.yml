@@ -3,15 +3,25 @@ name: Build libpython artifacts
 on:
   workflow_dispatch:
     inputs:
-      producer_version:
-        description: Immutable producer release identifier
+      python_tag:
+        description: Exact final CPython tag (for example v3.14.5)
         required: true
-        default: "0.2.0-dev"
+        default: "v3.14.5"
         type: string
       publish:
         description: Publish the verified bundle to GHCR
         required: true
         default: false
+        type: boolean
+  workflow_call:
+    inputs:
+      python_tag:
+        description: Exact final CPython tag
+        required: true
+        type: string
+      publish:
+        description: Publish a missing artifact to GHCR
+        required: true
         type: boolean
 
 permissions:
@@ -45,34 +55,79 @@ jobs:
             libncursesw5-dev libreadline-dev libsqlite3-dev libssl-dev \
             pkg-config python3 tk-dev uuid-dev xz-utils zlib1g-dev
 
-      - name: Build patch matrix
+      - name: Resolve immutable identity
+        id: identity
+        env:
+          PYTHON_TAG: ${{ inputs.python_tag }}
+          PUBLISH: ${{ inputs.publish }}
         run: |
-          make matrix \
+          scripts/python-tags exact "$PYTHON_TAG"
+          if producer_tag=$(git describe --tags --exact-match 2>/dev/null); then
+            producer_version=${producer_tag#v}
+          else
+            if [ "$PUBLISH" = true ]; then
+              echo "Publishing requires dispatching from a retrace-libpython release tag" >&2
+              exit 1
+            fi
+            producer_version=$(git rev-parse --short=12 HEAD)
+          fi
+          reference=$(make -s print-reference \
+            PYTHON_TAG="$PYTHON_TAG" PRODUCER_VERSION="$producer_version")
+          artifact=$(make -s print-artifact \
+            PYTHON_TAG="$PYTHON_TAG" PRODUCER_VERSION="$producer_version")
+          echo "producer_version=$producer_version" >> "$GITHUB_OUTPUT"
+          echo "reference=$reference" >> "$GITHUB_OUTPUT"
+          echo "artifact=$artifact" >> "$GITHUB_OUTPUT"
+
+      - name: Install oras
+        uses: oras-project/setup-oras@v1
+
+      - name: Log in to GHCR
+        run: echo "${{ github.token }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Probe exact artifact
+        id: cache
+        env:
+          REFERENCE: ${{ steps.identity.outputs.reference }}
+        run: |
+          if scripts/registry exists "$REFERENCE"; then
+            echo "hit=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "hit=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Restore exact artifact
+        if: ${{ steps.cache.outputs.hit == 'true' }}
+        run: |
+          make pull \
+            PYTHON_TAG=${{ inputs.python_tag }} \
+            PRODUCER_VERSION=${{ steps.identity.outputs.producer_version }}
+
+      - name: Build exact patch
+        if: ${{ steps.cache.outputs.hit != 'true' }}
+        run: |
+          make build-all prune-version \
+            PYTHON_TAG=${{ inputs.python_tag }} \
             CPYTHON_REPO_URL=https://github.com/python/cpython.git
 
       - name: Pack and verify
+        if: ${{ steps.cache.outputs.hit != 'true' }}
         run: |
           make pack-built verify \
-            PRODUCER_VERSION=${{ inputs.producer_version }}
+            PYTHON_TAG=${{ inputs.python_tag }} \
+            PRODUCER_VERSION=${{ steps.identity.outputs.producer_version }}
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v5
         with:
-          name: retrace-libpython-${{ inputs.producer_version }}-${{ matrix.platform }}
-          path: dist/*.tar.xz
+          name: retrace-libpython-${{ inputs.python_tag }}-${{ matrix.platform }}
+          path: ${{ steps.identity.outputs.artifact }}
           if-no-files-found: error
           retention-days: 14
 
-      - name: Install oras
-        if: ${{ inputs.publish }}
-        uses: oras-project/setup-oras@v1
-
-      - name: Log in to GHCR
-        if: ${{ inputs.publish }}
-        run: echo "${{ github.token }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
-
       - name: Publish immutable artifact
-        if: ${{ inputs.publish }}
+        if: ${{ inputs.publish && steps.cache.outputs.hit != 'true' }}
         run: |
           make push \
-            PRODUCER_VERSION=${{ inputs.producer_version }}
+            PYTHON_TAG=${{ inputs.python_tag }} \
+            PRODUCER_VERSION=${{ steps.identity.outputs.producer_version }}

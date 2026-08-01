@@ -15,7 +15,7 @@ import tarfile
 import tempfile
 
 
-SCHEMA = 2
+SCHEMA = 3
 MODES = ("release", "debug")
 MODE_FILES = (
     "python",
@@ -206,6 +206,7 @@ def command_pack(args):
                     shutil.rmtree(stage)
             manifest = {
                 "schema": SCHEMA,
+                "kind": "exact" if len(requested_versions) == 1 else "range",
                 "producer": {
                     "version": args.producer_version,
                     "commit": git_output(repository, "rev-parse", "HEAD"),
@@ -215,6 +216,11 @@ def command_pack(args):
                 "versions": version_records,
                 "files": inventory,
             }
+            if len(requested_versions) > 1:
+                manifest["range"] = {
+                    "first": requested_versions[0],
+                    "last": requested_versions[-1],
+                }
             manifest_data = (
                 json.dumps(manifest, indent=2, sort_keys=True) + "\n"
             ).encode()
