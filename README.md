@@ -91,6 +91,8 @@ patch builds as a matrix, then produces one OS/architecture-specific series
 artifact. If that immutable series artifact already exists, the workflow stops
 after discovery and the registry probe.
 
-Publishing requires dispatching from a `retrace-libpython` release tag. Series
+Tag runs publish under the producer's semantic version. Branch runs publish
+under the immutable producer commit prefix, so repeated runs at the same commit
+can reuse exact and series artifacts without colliding with releases. Series
 manifests record each exact source artifact's OCI reference, immutable digest,
 and archive checksum.

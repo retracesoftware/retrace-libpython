@@ -75,14 +75,14 @@ jobs:
             *) echo "Unsupported target: $TARGET_OS-$TARGET_ARCHITECTURE" >&2; exit 1 ;;
           esac
           target_platform=$TARGET_OS-$TARGET_ARCHITECTURE
-          [ "$PRODUCER_REF_TYPE" = tag ] || {
-            echo "Series builds require dispatching from a retrace-libpython release tag" >&2
-            exit 1
-          }
-          case "$PRODUCER_REF_NAME" in
-            v*) producer_version=${PRODUCER_REF_NAME#v} ;;
-            *) echo "Producer release tags must start with v" >&2; exit 1 ;;
-          esac
+          if [ "$PRODUCER_REF_TYPE" = tag ]; then
+            case "$PRODUCER_REF_NAME" in
+              v*) producer_version=${PRODUCER_REF_NAME#v} ;;
+              *) echo "Producer release tags must start with v" >&2; exit 1 ;;
+            esac
+          else
+            producer_version=$(git rev-parse --short=12 HEAD)
+          fi
           echo "producer_version=$producer_version" >> "$GITHUB_OUTPUT"
           echo "python_tags=$python_tags" >> "$GITHUB_OUTPUT"
           echo "first_python_tag=$first_python_tag" >> "$GITHUB_OUTPUT"
