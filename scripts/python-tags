@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
-"""Validate exact final CPython tags."""
+"""Validate exact CPython tags and derive patch series."""
 
 import argparse
+import json
 import re
+import sys
 
 
 TAG_PATTERN = re.compile(r"^v(\d+)\.(\d+)\.(\d+)$")
+SERIES_PATTERN = re.compile(r"^(\d+)\.(\d+)$")
 
 
 def parse_tag(value):
@@ -15,13 +18,59 @@ def parse_tag(value):
     return tuple(int(component) for component in match.groups())
 
 
+def tags_for_series(series, references):
+    match = SERIES_PATTERN.fullmatch(series)
+    if match is None:
+        raise SystemExit(f"expected a CPython minor series like 3.14, got {series!r}")
+    major, minor = (int(component) for component in match.groups())
+    pattern = re.compile(rf"^(?:refs/tags/)?v{major}\.{minor}\.(\d+)$")
+    patches = {
+        int(tag_match.group(1))
+        for reference in references
+        if (tag_match := pattern.fullmatch(reference.strip())) is not None
+    }
+    if not patches:
+        raise SystemExit(f"no final CPython tags found for {series}")
+    ordered = sorted(patches)
+    if ordered != list(range(ordered[0], ordered[-1] + 1)):
+        raise SystemExit(f"CPython tags for {series} are not sequential")
+    return [f"v{major}.{minor}.{patch}" for patch in ordered]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
     exact = subparsers.add_parser("exact")
     exact.add_argument("tag")
+    tag_range = subparsers.add_parser("range")
+    tag_range.add_argument("first")
+    tag_range.add_argument("last")
+    tag_range.add_argument("--json", action="store_true")
+    series = subparsers.add_parser("series")
+    series.add_argument("minor")
+    series.add_argument("--json", action="store_true")
     args = parser.parse_args()
-    print(".".join(map(str, parse_tag(args.tag))))
+
+    if args.command == "exact":
+        print(".".join(map(str, parse_tag(args.tag))))
+        return
+
+    if args.command == "series":
+        tags = tags_for_series(args.minor, sys.stdin)
+        print(json.dumps(tags) if args.json else " ".join(tags))
+        return
+
+    first = parse_tag(args.first)
+    last = parse_tag(args.last)
+    if first[:2] != last[:2]:
+        raise SystemExit("range endpoints must belong to the same minor series")
+    if first[2] >= last[2]:
+        raise SystemExit("range must contain at least two sequential patches")
+    tags = [
+        f"v{first[0]}.{first[1]}.{patch}"
+        for patch in range(first[2], last[2] + 1)
+    ]
+    print(json.dumps(tags) if args.json else " ".join(tags))
 
 
 if __name__ == "__main__":

@@ -17,6 +17,7 @@ import tempfile
 
 SCHEMA = 3
 MODES = ("release", "debug")
+SERIES_DICTIONARY_SIZE = 512 * 1024 * 1024
 MODE_FILES = (
     "python",
     "libpython.a",
@@ -139,6 +140,25 @@ def create_archive(source, output):
             add_tree(archive, source)
 
 
+def series_compression_filters():
+    return [{
+        "id": lzma.FILTER_LZMA2,
+        "preset": 9 | lzma.PRESET_EXTREME,
+        "dict_size": SERIES_DICTIONARY_SIZE,
+    }]
+
+
+def validate_requested_versions(versions):
+    parsed = [tuple(int(part) for part in version.split(".")) for version in versions]
+    if len(set(parsed)) != len(parsed):
+        raise SystemExit("duplicate CPython versions are not allowed")
+    if len(parsed) > 1:
+        series = {(major, minor) for major, minor, patch in parsed}
+        patches = [patch for major, minor, patch in parsed]
+        if len(series) != 1 or patches != list(range(patches[0], patches[-1] + 1)):
+            raise SystemExit("series versions must be sequential patches")
+
+
 def add_tree(archive, source, prefix=""):
     for path in sorted(source.iterdir(), key=lambda item: item.name):
         name = f"{prefix}/{path.name}" if prefix else path.name
@@ -158,8 +178,7 @@ def command_pack(args):
     args.output.parent.mkdir(parents=True, exist_ok=True)
     repository = Path(__file__).resolve().parents[1]
     requested_versions = args.versions
-    if len(requested_versions) != 1:
-        raise SystemExit("exact artifacts require exactly one CPython version")
+    validate_requested_versions(requested_versions)
     version_records = {}
     profiles = set()
     producer_commit = args.producer_commit
@@ -194,11 +213,13 @@ def command_pack(args):
         raise SystemExit("all versions must use the same build profile")
 
     inventory = {}
+    compression = (
+        {"filters": series_compression_filters()}
+        if len(requested_versions) > 1
+        else {"preset": 9 | lzma.PRESET_EXTREME}
+    )
     with lzma.open(
-        args.output,
-        mode="wb",
-        format=lzma.FORMAT_XZ,
-        preset=9 | lzma.PRESET_EXTREME,
+        args.output, mode="wb", format=lzma.FORMAT_XZ, **compression
     ) as compressed:
         with tarfile.open(
             mode="w|", fileobj=compressed, format=tarfile.PAX_FORMAT
@@ -217,7 +238,7 @@ def command_pack(args):
                     shutil.rmtree(stage)
             manifest = {
                 "schema": SCHEMA,
-                "kind": "exact",
+                "kind": "exact" if len(requested_versions) == 1 else "series",
                 "producer": {
                     "version": args.producer_version,
                     "commit": producer_commit,
@@ -227,6 +248,12 @@ def command_pack(args):
                 "versions": version_records,
                 "files": inventory,
             }
+            if len(requested_versions) > 1:
+                manifest["series"] = {
+                    "first": requested_versions[0],
+                    "last": requested_versions[-1],
+                }
+                manifest["sources"] = args.sources or []
             manifest_data = (
                 json.dumps(manifest, indent=2, sort_keys=True) + "\n"
             ).encode()
@@ -234,6 +261,47 @@ def command_pack(args):
                 archive, "retrace-libpython-manifest.json", manifest_data
             )
     print(args.output)
+
+
+def command_compose(args):
+    if len(args.sources) != len(args.versions):
+        raise SystemExit("one exact source artifact is required per version")
+    validate_requested_versions(args.versions)
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=args.output.parent) as temporary:
+        root = Path(temporary) / "build"
+        root.mkdir()
+        provenance = []
+        for version, (reference, digest, archive_path) in zip(
+            args.versions, args.sources
+        ):
+            digest_value = digest.removeprefix("sha256:")
+            if len(digest_value) != 64 or any(
+                character not in "0123456789abcdef" for character in digest_value
+            ):
+                raise SystemExit(f"invalid OCI digest: {digest}")
+            archive_path = Path(archive_path)
+            extracted = Path(temporary) / f"exact-{version}"
+            extracted.mkdir()
+            safe_extract(archive_path, extracted)
+            manifest = verify_tree(extracted, expected_versions=[version])
+            if manifest.get("kind") != "exact":
+                raise SystemExit(f"source artifact for {version} is not exact")
+            os.replace(extracted / f"v{version}", root / f"v{version}")
+            provenance.append({
+                "version": version,
+                "reference": reference,
+                "digest": digest,
+                "archive_sha256": sha256(archive_path),
+            })
+        command_pack(argparse.Namespace(
+            root=root,
+            versions=args.versions,
+            output=args.output,
+            producer_version=args.producer_version,
+            producer_commit=args.producer_commit,
+            sources=provenance,
+        ))
 
 
 def safe_extract(archive_path, destination):
@@ -256,13 +324,37 @@ def verify_tree(root, run=False, expected_versions=None):
             f"artifact platform {manifest.get('platform')} does not match {platform_tag()}"
         )
     actual_versions = set(manifest.get("versions", {}))
-    if manifest.get("kind") != "exact" or len(actual_versions) != 1:
-        raise SystemExit("invalid exact artifact identity")
+    kind = manifest.get("kind")
+    if kind == "exact":
+        if len(actual_versions) != 1 or "series" in manifest or "sources" in manifest:
+            raise SystemExit("invalid exact artifact identity")
+    elif kind == "series":
+        series_identity = manifest.get("series", {})
+        versions = sorted(
+            manifest.get("versions", {}),
+            key=lambda version: tuple(int(part) for part in version.split(".")),
+        )
+        if len(versions) < 2 or series_identity != {
+            "first": versions[0], "last": versions[-1]
+        }:
+            raise SystemExit("invalid series artifact identity")
+        validate_requested_versions(versions)
+        sources = manifest.get("sources", [])
+        if [source.get("version") for source in sources] != versions:
+            raise SystemExit("invalid series source provenance")
+        for source in sources:
+            digest = source.get("digest", "").removeprefix("sha256:")
+            if len(digest) != 64 or any(
+                character not in "0123456789abcdef" for character in digest
+            ):
+                raise SystemExit("invalid series source provenance")
+    else:
+        raise SystemExit(f"unsupported artifact kind: {kind}")
     if expected_versions is not None and actual_versions != set(expected_versions):
         missing = sorted(set(expected_versions) - actual_versions)
         extra = sorted(actual_versions - set(expected_versions))
         raise SystemExit(
-            f"artifact version mismatch; missing={missing}, extra={extra}"
+            f"artifact version matrix mismatch; missing={missing}, extra={extra}"
         )
     expected = manifest["files"]
     for relative, record in expected.items():
@@ -342,7 +434,19 @@ def main():
     pack.add_argument("--output", required=True, type=Path)
     pack.add_argument("--producer-version", required=True)
     pack.add_argument("--producer-commit", required=True)
+    pack.add_argument("--sources", type=json.loads)
     pack.set_defaults(func=command_pack)
+
+    compose = subparsers.add_parser("compose")
+    compose.add_argument("--versions", nargs="+", required=True)
+    compose.add_argument(
+        "--source", dest="sources", action="append", nargs=3, required=True,
+        metavar=("REFERENCE", "DIGEST", "ARCHIVE"),
+    )
+    compose.add_argument("--output", required=True, type=Path)
+    compose.add_argument("--producer-version", required=True)
+    compose.add_argument("--producer-commit", required=True)
+    compose.set_defaults(func=command_compose)
 
     verify = subparsers.add_parser("verify")
     source = verify.add_mutually_exclusive_group(required=True)
