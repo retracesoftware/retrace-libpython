@@ -38,14 +38,20 @@ jobs:
         env:
           FIRST_PYTHON_TAG: ${{ inputs.first_python_tag }}
           LAST_PYTHON_TAG: ${{ inputs.last_python_tag }}
+          PRODUCER_REF_NAME: ${{ github.ref_name }}
+          PRODUCER_REF_TYPE: ${{ github.ref_type }}
         run: |
           python_tags=$(scripts/python-tags range \
             "$FIRST_PYTHON_TAG" "$LAST_PYTHON_TAG" --json)
-          producer_tag=$(git describe --tags --exact-match 2>/dev/null) || {
+          [ "$PRODUCER_REF_TYPE" = tag ] || {
             echo "Range builds require dispatching from a retrace-libpython release tag" >&2
             exit 1
           }
-          echo "producer_version=${producer_tag#v}" >> "$GITHUB_OUTPUT"
+          case "$PRODUCER_REF_NAME" in
+            v*) producer_version=${PRODUCER_REF_NAME#v} ;;
+            *) echo "Producer release tags must start with v" >&2; exit 1 ;;
+          esac
+          echo "producer_version=$producer_version" >> "$GITHUB_OUTPUT"
           echo "python_tags=$python_tags" >> "$GITHUB_OUTPUT"
 
   ensure-exact:

@@ -60,10 +60,15 @@ jobs:
         env:
           PYTHON_TAG: ${{ inputs.python_tag }}
           PUBLISH: ${{ inputs.publish }}
+          PRODUCER_REF_NAME: ${{ github.ref_name }}
+          PRODUCER_REF_TYPE: ${{ github.ref_type }}
         run: |
           scripts/python-tags exact "$PYTHON_TAG"
-          if producer_tag=$(git describe --tags --exact-match 2>/dev/null); then
-            producer_version=${producer_tag#v}
+          if [ "$PRODUCER_REF_TYPE" = tag ]; then
+            case "$PRODUCER_REF_NAME" in
+              v*) producer_version=${PRODUCER_REF_NAME#v} ;;
+              *) echo "Producer release tags must start with v" >&2; exit 1 ;;
+            esac
           else
             if [ "$PUBLISH" = true ]; then
               echo "Publishing requires dispatching from a retrace-libpython release tag" >&2
