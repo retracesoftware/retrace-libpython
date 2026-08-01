@@ -24,6 +24,7 @@ case "$command" in
         fi
         oras push "$reference" \
             --artifact-type application/vnd.retracesoftware.libpython.v1 \
+            --annotation org.opencontainers.image.source=https://github.com/retracesoftware/retrace-libpython \
             "$archive:$media_type"
         ;;
     pull)

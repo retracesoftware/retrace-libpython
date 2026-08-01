@@ -38,6 +38,12 @@ def sha256(path):
     return digest.hexdigest()
 
 
+def git_output(root, *args):
+    return subprocess.check_output(
+        ("git", "-C", str(root), *args), text=True
+    ).strip()
+
+
 def platform_tag():
     system = platform.system().lower()
     machine = platform.machine().lower().replace("aarch64", "arm64")
@@ -129,6 +135,9 @@ def create_archive(source, output):
 def command_pack(args):
     root = args.root.resolve()
     args.output.parent.mkdir(parents=True, exist_ok=True)
+    repository = Path(__file__).resolve().parents[1]
+    if git_output(repository, "status", "--porcelain"):
+        raise SystemExit("refusing to pack from a dirty producer checkout")
     metadata = {mode: load_mode_metadata(root, mode) for mode in MODES}
     versions = {item["cpython"]["version"] for item in metadata.values()}
     commits = {item["cpython"]["commit"] for item in metadata.values()}
@@ -143,7 +152,10 @@ def command_pack(args):
             copy_mode(root / mode, stage / mode)
         manifest = {
             "schema": SCHEMA,
-            "producer_version": args.producer_version,
+            "producer": {
+                "version": args.producer_version,
+                "commit": git_output(repository, "rev-parse", "HEAD"),
+            },
             "profile": profiles.pop(),
             "cpython": {"version": versions.pop(), "commit": commits.pop()},
             "platform": platform_tag(),
@@ -207,7 +219,7 @@ def command_verify(args):
         manifest = verify_tree(args.root.resolve(), args.run)
     print(
         f"verified CPython {manifest['cpython']['version']} "
-        f"{manifest['platform']} ({manifest['producer_version']})"
+        f"{manifest['platform']} ({manifest['producer']['version']})"
     )
 
 
