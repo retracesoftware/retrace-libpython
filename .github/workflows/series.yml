@@ -38,7 +38,6 @@ jobs:
     outputs:
       producer_version: ${{ steps.identity.outputs.producer_version }}
       python_tags: ${{ steps.identity.outputs.python_tags }}
-      producer_commit: ${{ steps.identity.outputs.producer_commit }}
       first_python_tag: ${{ steps.identity.outputs.first_python_tag }}
       last_python_tag: ${{ steps.identity.outputs.last_python_tag }}
       target_platform: ${{ steps.identity.outputs.target_platform }}
@@ -85,7 +84,6 @@ jobs:
             producer_version=$(git rev-parse --short=12 HEAD)
           fi
           echo "producer_version=$producer_version" >> "$GITHUB_OUTPUT"
-          echo "producer_commit=${{ github.sha }}" >> "$GITHUB_OUTPUT"
           echo "python_tags=$python_tags" >> "$GITHUB_OUTPUT"
           echo "first_python_tag=$first_python_tag" >> "$GITHUB_OUTPUT"
           echo "last_python_tag=$last_python_tag" >> "$GITHUB_OUTPUT"
@@ -157,8 +155,6 @@ jobs:
       python_tag: ${{ matrix.python_tag }}
       publish: true
       platform: ${{ needs.prepare.outputs.target_platform }}
-      producer_version: ${{ needs.prepare.outputs.producer_version }}
-      producer_commit: ${{ needs.prepare.outputs.producer_commit }}
     secrets: inherit
 
   aggregate:
